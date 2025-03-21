@@ -1,12 +1,5 @@
 package com.outlook.integration.repositories;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
-
 import com.azure.core.credential.TokenRequestContext;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
@@ -18,261 +11,240 @@ import com.microsoft.graph.requests.GraphServiceClient;
 import com.microsoft.graph.requests.MessageCollectionPage;
 import com.outlook.integration.dtos.Attachment;
 import com.outlook.integration.dtos.EmailDTO;
-import com.microsoft.graph.models.FileAttachment;
-import com.outlook.integration.dtos.Attachment;
+import com.outlook.integration.utils.TokenUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Repository;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Repository
 public class OutlookRepository {
 
-	@Value("${outlook.client.id}")
-	private String clientId;
+    @Value("${outlook.client.id}")
+    private String clientId;
 
-	@Value("${outlook.client.secret}")
-	private String clientSecret;
+    @Value("${outlook.client.secret}")
+    private String clientSecret;
 
-	@Value("${outlook.tenant.id}")
-	private String tenantId;
+    @Value("${outlook.tenant.id}")
+    private String tenantId;
 
-	public List<String> listEmailSubjects(String userId) {
-		GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
+    @Autowired
+    private TokenUtil tokenUtil;
 
-		MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest().select("id,subject")
-				.top(10).get();
+    public List<String> listEmailSubjects(String userId) {
+        GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
 
-		List<String> subjects = new ArrayList<>();
-		if (messagePage != null && messagePage.getCurrentPage() != null) {
-			messagePage.getCurrentPage().forEach(msg -> subjects.add(msg.subject));
-		}
-		return subjects;
-	}
+        MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest().select("id,subject")
+                .top(10).get();
 
-	public List<EmailDTO> listLatestEmails(String userId, int limit) {
-		GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
+        List<String> subjects = new ArrayList<>();
+        if (messagePage != null && messagePage.getCurrentPage() != null) {
+            messagePage.getCurrentPage().forEach(msg -> subjects.add(msg.subject));
+        }
+        return subjects;
+    }
 
-		MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest()
-				.select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
-				.get();
+    public List<EmailDTO> listLatestEmails(String userId, int limit) {
+        GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
 
-		return mapMessagesToDTO(messagePage);
-	}
+        MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest()
+                .select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
+                .get();
 
-	public List<EmailDTO> listLatestEmailsWithoutUserId(String accessToken, int limit) {
-		IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+        return mapMessagesToDTO(messagePage);
+    }
 
-		GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
-				.buildClient();
+    public List<EmailDTO> listLatestEmailsWithoutUserId(String refreshToken, int limit) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
-		MessageCollectionPage messagePage = graphClient.me().messages().buildRequest()
-				.select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
-				.get();
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-		return mapMessagesToDTO(messagePage);
-	}
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
 
-	public List<EmailDTO> searchEmailsByUserIdAndQuery(String userId, String text) {
-		GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
+        MessageCollectionPage messagePage = graphClient.me().messages().buildRequest()
+                .select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
+                .get();
 
-		List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
-
-		MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
-				.select("id,subject,from,bodyPreview,receivedDateTime").get();
-
-		return mapMessagesToDTO(messages);
-	}
-
-	public List<EmailDTO> searchEmailsWithToken(String accessToken, String userId, String text) {
-		IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-		GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
-				.buildClient();
-
-		List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
-
-		MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
-				.select("id,subject,from,bodyPreview,receivedDateTime").top(10).get();
-
-		return mapMessagesToDTO(messages);
-	}
-
-	public List<String> searchEmailIdsByQuery(String accessToken, String text) {
-		IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-		GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
-				.buildClient();
-
-		List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
-
-		MessageCollectionPage messages = graphClient.me().messages().buildRequest(options).select("id").top(10).get();
-
-		List<String> ids = new ArrayList<>();
-		if (messages != null && messages.getCurrentPage() != null) {
-			for (Message msg : messages.getCurrentPage()) {
-				ids.add(msg.id);
-			}
-		}
-		return ids;
-	}
-
-	// Ler um email passando o ID
-	public EmailDTO getEmailById(String accessToken, String messageId) {
-		IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-		GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
-				.buildClient();
-
-		Message message = graphClient.me().messages(messageId).buildRequest().select(
-				"id,subject,from,toRecipients,ccRecipients,bccRecipients,bodyPreview,receivedDateTime,conversationId")
-				.get();
-
-		EmailDTO dto = new EmailDTO();
-		dto.setId(message.id);
-		dto.setConversationId(message.conversationId);
-		dto.setSubject(message.subject);
-		dto.setTextBody(message.bodyPreview);
-		if (message.from != null && message.from.emailAddress != null) {
-			dto.setFrom(message.from.emailAddress.address);
-		}
-		if (message.receivedDateTime != null) {
-			dto.setDate(message.receivedDateTime.toLocalDateTime());
-		}
-		return dto;
-	}
-
-	public List<EmailDTO> getThreadByEmailId(String accessToken, String messageId) {
-		IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-		GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
-				.buildClient();
-
-		// Primeiro: recuperar o conversationId com base no messageId
-		Message message = graphClient.me().messages(messageId).buildRequest().select("conversationId").get();
-
-		String conversationId = message.conversationId;
-
-		// Buscar todos os e-mails da mesma conversa
-		List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + conversationId + "'"));
-
-		MessageCollectionPage threadMessages = graphClient.me().messages().buildRequest(options).select(
-				"id,subject,from,bodyPreview,receivedDateTime,conversationId, hasAttachments,attachments,body,bodyPreview,toRecipients,ccRecipients")
-				.get();
-
-		List<EmailDTO> thread = mapMessagesToDTO(threadMessages);
-
-//        // Adiciona os attachments manualmente em cada EmailDTO
-//        for (EmailDTO dto : thread) {
-//            AttachmentCollectionPage attachments = graphClient
-//                    .me()
-//                    .messages(dto.getId())
-//                    .attachments()
-//                    .buildRequest()
-//                    .get();
-
-//            if (attachments != null && attachments.getCurrentPage() != null && !attachments.getCurrentPage().isEmpty()) {
-//                List<String> attachNames = new ArrayList<>();
-//                attachments.getCurrentPage().forEach(att -> attachNames.add(att.name));
-//                dto.setAttachments(attachNames);
-//            }
-//        }
-//
-		return thread;
-	}
-
-	public List<Attachment> getAttachmentsByEmailId (String accessToken,
-	String messageId)
-	{
-        IAuthenticationProvider authProvider = requestUrl ->
-        CompletableFuture.completedFuture(accessToken);
-
-    GraphServiceClient<?> graphClient = GraphServiceClient
-            .builder()
-            .authenticationProvider(authProvider)
-            .buildClient();
+        return mapMessagesToDTO(messagePage);
+    }
     
-      AttachmentCollectionPage attachments = graphClient
-              .me()
-              .messages(messageId)
-              .attachments()
-              .buildRequest()
-              .get();
+    public List<EmailDTO> searchEmailsByUserIdAndQuery(String userId, String text) {
+        GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
 
-      		List<Attachment> attachmentsList = new ArrayList<>();
-      		
-			attachments.getCurrentPage().forEach(att -> {
-				Attachment attachment = new Attachment(att.id, att.name, att.contentType, null);
-				attachmentsList.add(attachment);
-			});
-			
-			return attachmentsList;
-		
-  }
-	
-	public Attachment downloadAttachmentContent(String accessToken, String messageId, String attachmentId) {
-	    IAuthenticationProvider authProvider = requestUrl ->
-	        CompletableFuture.completedFuture(accessToken);
+        List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
 
-	    GraphServiceClient<?> graphClient = GraphServiceClient
-	            .builder()
-	            .authenticationProvider(authProvider)
-	            .buildClient();
+        MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
+                .select("id,subject,from,bodyPreview,receivedDateTime").get();
 
-	    com.microsoft.graph.models.Attachment attachment = graphClient
-	            .me()
-	            .messages(messageId)
-	            .attachments(attachmentId)
-	            .buildRequest()
-	            .get();
+        return mapMessagesToDTO(messages);
+    }
 
-	    if (attachment instanceof FileAttachment) {
-	        FileAttachment fileAttachment = (FileAttachment) attachment;
 
-	        return new Attachment(
-	            fileAttachment.id,
-	            fileAttachment.name,
-	            fileAttachment.contentType,
-	            fileAttachment.contentBytes
-	        );
-	    }
+    public List<EmailDTO> searchEmailsWithRefreshToken(String refreshToken, String userId, String text) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
-	    throw new RuntimeException("Attachment não é um FileAttachment válido ou não possui conteúdo.");
-	}
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+
+        List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
+
+        MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
+                .select("id,subject,from,bodyPreview,receivedDateTime").top(10).get();
+
+        return mapMessagesToDTO(messages);
+    }
+
+    public List<String> searchEmailIdsByQuery(String refreshToken, String text) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+
+        List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
+
+        MessageCollectionPage messages = graphClient.me().messages().buildRequest(options).select("id").top(10).get();
+
+        List<String> ids = new ArrayList<>();
+        if (messages != null && messages.getCurrentPage() != null) {
+            for (Message msg : messages.getCurrentPage()) {
+                ids.add(msg.id);
+            }
+        }
+        return ids;
+    }
+
+    public EmailDTO getEmailById(String refreshToken, String messageId) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+
+        Message message = graphClient.me().messages(messageId).buildRequest().select(
+                "id,subject,from,toRecipients,ccRecipients,bccRecipients,bodyPreview,receivedDateTime,conversationId")
+                .get();
+
+        EmailDTO dto = new EmailDTO();
+        dto.setId(message.id);
+        dto.setConversationId(message.conversationId);
+        dto.setSubject(message.subject);
+        dto.setTextBody(message.bodyPreview);
+        if (message.from != null && message.from.emailAddress != null) {
+            dto.setFrom(message.from.emailAddress.address);
+        }
+        if (message.receivedDateTime != null) {
+            dto.setDate(message.receivedDateTime.toLocalDateTime());
+        }
+        return dto;
+    }
+
+    public List<EmailDTO> getThreadByEmailId(String refreshToken, String messageId) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+
+        Message message = graphClient.me().messages(messageId).buildRequest().select("conversationId").get();
+
+        String conversationId = message.conversationId;
+
+        List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + conversationId + "'"));
+
+        MessageCollectionPage threadMessages = graphClient.me().messages().buildRequest(options).select(
+                "id,subject,from,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients")
+                .get();
+
+        return mapMessagesToDTO(threadMessages);
+    }
+
+    public List<Attachment> getAttachmentsByEmailId(String refreshToken, String messageId) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+
+        AttachmentCollectionPage attachments = graphClient.me().messages(messageId).attachments().buildRequest().get();
+
+        List<Attachment> attachmentsList = new ArrayList<>();
+        attachments.getCurrentPage().forEach(att -> {
+            Attachment attachment = new Attachment(att.id, att.name, att.contentType, null);
+            attachmentsList.add(attachment);
+        });
+
+        return attachmentsList;
+    }
+
+    public Attachment downloadAttachmentContent(String refreshToken, String messageId, String attachmentId) {
+        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider).buildClient();
+
+        com.microsoft.graph.models.Attachment attachment = graphClient
+                .me()
+                .messages(messageId)
+                .attachments(attachmentId)
+                .buildRequest()
+                .get();
+
+        if (attachment instanceof FileAttachment fileAttachment) {
+            return new Attachment(fileAttachment.id, fileAttachment.name, fileAttachment.contentType, fileAttachment.contentBytes);
+        }
+
+        throw new RuntimeException("Attachment não é um FileAttachment válido ou não possui conteúdo.");
+    }
 
     public String getAppAccessToken() {
-		TokenRequestContext context = new TokenRequestContext().addScopes("https://graph.microsoft.com/.default");
+        TokenRequestContext context = new TokenRequestContext().addScopes("https://graph.microsoft.com/.default");
+        return new ClientSecretCredentialBuilder()
+                .clientId(clientId)
+                .clientSecret(clientSecret)
+                .tenantId(tenantId)
+                .build()
+                .getToken(context)
+                .block()
+                .getToken();
+    }
 
-		return new ClientSecretCredentialBuilder().clientId(clientId).clientSecret(clientSecret).tenantId(tenantId)
-				.build().getToken(context).block().getToken();
-	}
+    private GraphServiceClient<?> createGraphClientWithAppToken() {
+        String token = getAppAccessToken();
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(token);
+        return GraphServiceClient.builder().authenticationProvider(authProvider).buildClient();
+    }
 
-	private GraphServiceClient<?> createGraphClientWithAppToken() {
-		String token = getAppAccessToken();
-
-		IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(token);
-
-		return GraphServiceClient.builder().authenticationProvider(authProvider).buildClient();
-	}
-
-	private List<EmailDTO> mapMessagesToDTO(MessageCollectionPage messages) {
-		List<EmailDTO> result = new ArrayList<>();
-		if (messages != null && messages.getCurrentPage() != null) {
-			for (Message msg : messages.getCurrentPage()) {
-				EmailDTO dto = new EmailDTO();
-
-				
-				System.out.println(msg.toString());
-
-				dto.setId(msg.id);
-				dto.setConversationId(msg.conversationId);
-				dto.setSubject(msg.subject);
-				if (msg.from != null && msg.from.emailAddress != null) {
-					dto.setFrom(msg.from.emailAddress.address);
-				}
-				dto.setTextBody(msg.bodyPreview);
-				if (msg.receivedDateTime != null) {
-					dto.setDate(msg.receivedDateTime.toLocalDateTime());
-				}
-				result.add(dto);
-			}
-		}
-		return result;
-	}
+    private List<EmailDTO> mapMessagesToDTO(MessageCollectionPage messages) {
+        List<EmailDTO> result = new ArrayList<>();
+        if (messages != null && messages.getCurrentPage() != null) {
+            for (Message msg : messages.getCurrentPage()) {
+                EmailDTO dto = new EmailDTO();
+                dto.setId(msg.id);
+                dto.setConversationId(msg.conversationId);
+                dto.setSubject(msg.subject);
+                if (msg.from != null && msg.from.emailAddress != null) {
+                    dto.setFrom(msg.from.emailAddress.address);
+                }
+                dto.setTextBody(msg.bodyPreview);
+                if (msg.receivedDateTime != null) {
+                    dto.setDate(msg.receivedDateTime.toLocalDateTime());
+                }
+                result.add(dto);
+            }
+        }
+        return result;
+    }
 }
