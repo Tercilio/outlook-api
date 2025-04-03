@@ -5,6 +5,7 @@ import com.azure.identity.ClientSecretCredentialBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
 import com.microsoft.graph.models.FileAttachment;
 import com.microsoft.graph.models.Message;
+import com.microsoft.graph.models.User;
 import com.microsoft.graph.options.QueryOption;
 import com.microsoft.graph.requests.AttachmentCollectionPage;
 import com.microsoft.graph.requests.GraphServiceClient;
@@ -120,6 +121,18 @@ public class OutlookRepository {
             }
         }
         return ids;
+    }
+    
+    public User getUserInfo(String refreshToken){
+    	
+    	String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+    	IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+    	
+    	GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+    	
+		return graphClient.me().buildRequest().get();
+    	
     }
 
     public EmailDTO getEmailById(String refreshToken, String messageId) {
