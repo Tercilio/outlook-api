@@ -50,7 +50,8 @@ public class AuthService {
         return Map.of(
                 "access_token", tokenResponse.get("access_token"),
                 "refresh_token", tokenResponse.get("refresh_token"),
-                "email", userInfo.getOrDefault("mail", userInfo.get("userPrincipalName")) // fallback
+                "email", userInfo.getOrDefault("mail", userInfo.get("userPrincipalName")),
+                "user_id", userInfo.get("id")
         );
     }
 }
