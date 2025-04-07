@@ -68,7 +68,7 @@ public class OutlookRepository {
                 .buildClient();
 
         MessageCollectionPage messagePage = graphClient.me().messages().buildRequest()
-                .select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
+                .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").orderBy("receivedDateTime desc").top(limit)
                 .get();
 
         return mapMessagesToDTO(messagePage);
@@ -80,7 +80,7 @@ public class OutlookRepository {
         List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
 
         MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
-                .select("id,subject,from,bodyPreview,receivedDateTime").get();
+                .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").get();
 
         return mapMessagesToDTO(messages);
     }
@@ -97,7 +97,7 @@ public class OutlookRepository {
         List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
 
         MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
-                .select("id,subject,from,bodyPreview,receivedDateTime").top(10).get();
+                .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").top(10).get();
 
         return mapMessagesToDTO(messages);
     }
@@ -176,7 +176,7 @@ public class OutlookRepository {
         List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + conversationId + "'"));
 
         MessageCollectionPage threadMessages = graphClient.me().messages().buildRequest(options).select(
-                "id,subject,from,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients")
+                "id,subject,from,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments")
                 .get();
 
         return mapMessagesToDTO(threadMessages);
@@ -255,9 +255,12 @@ public class OutlookRepository {
                 if (msg.receivedDateTime != null) {
                     dto.setDate(msg.receivedDateTime.toLocalDateTime());
                 }
+                // ✅ mapeando se o e-mail tem anexos
+                dto.setHasAttachments(msg.hasAttachments);
                 result.add(dto);
             }
         }
         return result;
     }
+
 }

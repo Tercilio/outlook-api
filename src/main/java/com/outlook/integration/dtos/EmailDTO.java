@@ -17,6 +17,7 @@ public class EmailDTO {
 	private List<String> cc;
 	private List<String> bcc;
 	private LocalDateTime date;
+	private Boolean hasAttachments;
 
 	public EmailDTO() {
 	}
@@ -37,7 +38,15 @@ public class EmailDTO {
 		this.bcc = bcc;
 		this.date = date;
 	}
+		
+	public Boolean getHasAttachments() {
+		return hasAttachments;
+	}
 
+	public void setHasAttachments(Boolean hasAttachments) {
+		this.hasAttachments = hasAttachments;
+	}
+		
 	public String getId() {
 	    return id;
 	}
