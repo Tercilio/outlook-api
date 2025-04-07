@@ -38,7 +38,7 @@ public class AuthService {
 
         String accessToken = tokenResponse.get("access_token").toString();
 
-        // 2. Usa access token para buscar informações do usuário
+
         Map<String, Object> userInfo = graphClient.get()
                 .uri("/v1.0/me")
                 .headers(h -> h.setBearerAuth(accessToken))
@@ -46,12 +46,20 @@ public class AuthService {
                 .bodyToMono(Map.class)
                 .block();
 
-        // 3. Monta resposta incluindo tokens e e-mail
+        // 3. Extract Email 
+        String email = null;
+        if (userInfo.get("mail") != null) {
+            email = userInfo.get("mail").toString();
+        } else if (userInfo.get("userPrincipalName") != null) {
+            email = userInfo.get("userPrincipalName").toString();
+        }
+
         return Map.of(
                 "access_token", tokenResponse.get("access_token"),
                 "refresh_token", tokenResponse.get("refresh_token"),
-                "email", userInfo.getOrDefault("mail", userInfo.get("userPrincipalName")),
+                "email", email,
                 "user_id", userInfo.get("id")
         );
     }
+
 }
