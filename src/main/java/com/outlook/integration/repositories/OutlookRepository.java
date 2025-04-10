@@ -1,4 +1,5 @@
 package com.outlook.integration.repositories;
+import com.microsoft.graph.models.BodyType;
 
 import com.azure.core.credential.TokenRequestContext;
 import com.azure.identity.ClientSecretCredentialBuilder;
@@ -68,7 +69,7 @@ public class OutlookRepository {
                 .buildClient();
 
         MessageCollectionPage messagePage = graphClient.me().messages().buildRequest()
-                .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").orderBy("receivedDateTime desc").top(limit)
+        		.select("id,subject,from,body,receivedDateTime,hasAttachments").orderBy("receivedDateTime desc").top(limit)
                 .get();
 
         return mapMessagesToDTO(messagePage);
@@ -251,7 +252,13 @@ public class OutlookRepository {
                 if (msg.from != null && msg.from.emailAddress != null) {
                     dto.setFrom(msg.from.emailAddress.address);
                 }
-                dto.setTextBody(msg.bodyPreview);
+                if (msg.body != null) {
+                	if (msg.body.contentType == BodyType.HTML) {
+                	    dto.setHtmlBody(msg.body.content);
+                	} else {
+                	    dto.setTextBody(msg.body.content);
+                	}
+                }
                 if (msg.receivedDateTime != null) {
                     dto.setDate(msg.receivedDateTime.toLocalDateTime());
                 }
