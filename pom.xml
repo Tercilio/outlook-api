@@ -56,6 +56,12 @@
             <artifactId>h2</artifactId>
             <scope>runtime</scope>
         </dependency>
+        
+		<dependency>
+  			<groupId>org.jsoup</groupId>
+  			<artifactId>jsoup</artifactId>
+  			<version>1.17.2</version>
+		</dependency>
 
         <!-- Microsoft Graph SDK -->
         <dependency>

@@ -21,6 +21,7 @@ import org.springframework.stereotype.Repository;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.jsoup.Jsoup;
 
 @Repository
 public class OutlookRepository {
@@ -252,12 +253,11 @@ public class OutlookRepository {
                 if (msg.from != null && msg.from.emailAddress != null) {
                     dto.setFrom(msg.from.emailAddress.address);
                 }
-                if (msg.body != null) {
-                	if (msg.body.contentType == BodyType.HTML) {
-                	    dto.setHtmlBody(msg.body.content);
-                	} else {
-                	    dto.setTextBody(msg.body.content);
-                	}
+                if (msg.body != null && msg.body.content != null) {
+                    String html = msg.body.content;
+                    String cleanText = Jsoup.parse(html).text(); // limpa tags
+                    dto.setTextBody(cleanText); // texto limpo para o DTO
+                    dto.setHtmlBody(html);      // opcional: manter original também
                 }
                 if (msg.receivedDateTime != null) {
                     dto.setDate(msg.receivedDateTime.toLocalDateTime());
