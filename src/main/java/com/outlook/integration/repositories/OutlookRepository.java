@@ -178,15 +178,15 @@ public class OutlookRepository {
         List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + conversationId + "'"));
 
         MessageCollectionPage threadMessages = graphClient
-        	    .me()
-        	    .messages()
-        	    .buildRequest(options)
-        	    .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments")
-        	    .orderBy("receivedDateTime desc") // garante que venha do mais recente ao mais antigo
-        	    .get();
+                .me()
+                .messages()
+                .buildRequest(options)
+                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments")
+                .get(); 
 
         return mapMessagesToDTO(threadMessages);
     }
+
 
     public List<Attachment> getAttachmentsByEmailId(String refreshToken, String messageId) {
         String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
@@ -254,20 +254,51 @@ public class OutlookRepository {
                 dto.setId(msg.id);
                 dto.setConversationId(msg.conversationId);
                 dto.setSubject(msg.subject);
+
                 if (msg.from != null && msg.from.emailAddress != null) {
                     dto.setFrom(msg.from.emailAddress.address);
                 }
+
                 if (msg.body != null && msg.body.content != null) {
                     String html = msg.body.content;
-                    String cleanText = Jsoup.parse(html).text(); // limpa tags
-                    dto.setTextBody(cleanText); // texto limpo para o DTO
-                    dto.setHtmlBody(html);      // opcional: manter original também
+                    String cleanText = Jsoup.parse(html).text();
+                    dto.setTextBody(cleanText);
+                    dto.setHtmlBody(html);
                 }
+
                 if (msg.receivedDateTime != null) {
                     dto.setDate(msg.receivedDateTime.toLocalDateTime());
                 }
-                // ✅ mapeando se o e-mail tem anexos
+
                 dto.setHasAttachments(msg.hasAttachments);
+
+                // TO
+                if (msg.toRecipients != null) {
+                    List<String> toList = msg.toRecipients.stream()
+                            .map(recipient -> recipient.emailAddress != null ? recipient.emailAddress.address : null)
+                            .filter(address -> address != null)
+                            .toList();
+                    dto.setTo(toList);
+                }
+
+                // CC
+                if (msg.ccRecipients != null) {
+                    List<String> ccList = msg.ccRecipients.stream()
+                            .map(recipient -> recipient.emailAddress != null ? recipient.emailAddress.address : null)
+                            .filter(address -> address != null)
+                            .toList();
+                    dto.setCc(ccList);
+                }
+
+                // BCC
+                if (msg.bccRecipients != null) {
+                    List<String> bccList = msg.bccRecipients.stream()
+                            .map(recipient -> recipient.emailAddress != null ? recipient.emailAddress.address : null)
+                            .filter(address -> address != null)
+                            .toList();
+                    dto.setBcc(bccList);
+                }
+
                 result.add(dto);
             }
         }
