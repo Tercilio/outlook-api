@@ -70,8 +70,11 @@ public class OutlookRepository {
                 .buildClient();
 
         MessageCollectionPage messagePage = graphClient.me().messages().buildRequest()
-        		.select("id,subject,from,body,receivedDateTime,hasAttachments").orderBy("receivedDateTime desc").top(limit)
-                .get();
+        	    .select("id,subject,from,body,receivedDateTime,hasAttachments,toRecipients,ccRecipients,bccRecipients")
+        	    .orderBy("receivedDateTime desc")
+        	    .top(limit)
+        	    .get();
+
 
         return mapMessagesToDTO(messagePage);
     }
