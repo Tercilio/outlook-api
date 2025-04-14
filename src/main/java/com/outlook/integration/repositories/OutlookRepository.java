@@ -177,9 +177,13 @@ public class OutlookRepository {
 
         List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + conversationId + "'"));
 
-        MessageCollectionPage threadMessages = graphClient.me().messages().buildRequest(options).select(
-                "id,subject,from,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments")
-                .get();
+        MessageCollectionPage threadMessages = graphClient
+        	    .me()
+        	    .messages()
+        	    .buildRequest(options)
+        	    .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments")
+        	    .orderBy("receivedDateTime desc") // garante que venha do mais recente ao mais antigo
+        	    .get();
 
         return mapMessagesToDTO(threadMessages);
     }
