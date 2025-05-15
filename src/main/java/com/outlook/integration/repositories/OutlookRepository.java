@@ -63,21 +63,56 @@ public class OutlookRepository {
 
     public List<EmailDTO> listLatestEmailsWithoutUserId(String refreshToken, int limit) {
         String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
-
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
+                .authenticationProvider(authProvider)
                 .buildClient();
 
-        MessageCollectionPage messagePage = graphClient.me().messages().buildRequest()
-        	    .select("id,subject,from,body,receivedDateTime,hasAttachments,toRecipients,ccRecipients,bccRecipients")
-        	    .orderBy("receivedDateTime desc")
-        	    .top(limit)
-        	    .get();
+        var foldersPage = graphClient.me().mailFolders()
+                .buildRequest()
+                .select("id,displayName")
+                .get();
 
+        List<Message> allMessages = new ArrayList<>();
 
-        return mapMessagesToDTO(messagePage);
+        for (var folder : foldersPage.getCurrentPage()) {
+            if ("Drafts".equalsIgnoreCase(folder.displayName)) {
+                continue;
+            }
+
+            try {
+                var messagesPage = graphClient.me()
+                        .mailFolders(folder.id)
+                        .messages()
+                        .buildRequest()
+                        .select("id,subject,from,body,receivedDateTime,hasAttachments,toRecipients,ccRecipients,bccRecipients,isDraft")
+                        .orderBy("receivedDateTime desc")
+                        .top(limit)
+                        .get();
+
+                List<Message> validMessages = messagesPage.getCurrentPage().stream()
+                        .filter(msg -> msg.isDraft == null || !msg.isDraft)
+                        .toList();
+
+                for (Message msg : validMessages) {
+                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive(folder.displayName));
+                }
+
+                allMessages.addAll(validMessages);
+
+            } catch (Exception e) {
+                System.err.println("Erro ao ler mensagens da pasta: " + folder.displayName);
+            }
+        }
+
+        return mapMessagesToDTO(allMessages.stream().limit(limit).toList());
     }
+
+
+
+
+
     
     public List<EmailDTO> searchEmailsByUserIdAndQuery(String userId, String text) {
         GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
@@ -119,8 +154,7 @@ public class OutlookRepository {
 
         MessageCollectionPage messages = graphClient.me().messages()
                 .buildRequest(options)
-                .select("id,conversationId")
-                .top(20) 
+                .select("id,conversationId") 
                 .get();
 
         List<String> ids = new ArrayList<>();
@@ -289,23 +323,33 @@ public class OutlookRepository {
             dto.setId(msg.id);
             dto.setConversationId(msg.conversationId);
             dto.setSubject(msg.subject);
+            
             if (msg.from != null && msg.from.emailAddress != null) {
                 dto.setFrom(msg.from.emailAddress.address);
             }
+            
             if (msg.body != null && msg.body.content != null) {
                 String html = msg.body.content;
                 String cleanText = Jsoup.parse(html).text();
                 dto.setTextBody(cleanText);
                 dto.setHtmlBody(html);
             }
+            
             if (msg.receivedDateTime != null) {
                 dto.setDate(msg.receivedDateTime.toLocalDateTime());
             }
+            
             dto.setHasAttachments(msg.hasAttachments);
+            
+            if (msg.additionalDataManager().containsKey("folderName")) {
+                dto.setFolderName(msg.additionalDataManager().get("folderName").getAsString());
+            }
+
             result.add(dto);
         }
         return result;
     }
+
 
 
 
@@ -360,6 +404,10 @@ public class OutlookRepository {
                             .filter(address -> address != null)
                             .toList();
                     dto.setBcc(bccList);
+                }
+                
+                if (msg.parentFolderId != null) {
+                    dto.setFolderName(msg.parentFolderId);
                 }
 
                 result.add(dto);
