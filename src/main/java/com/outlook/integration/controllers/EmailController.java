@@ -102,11 +102,5 @@ public class EmailController {
                 .body(attachment.getContentBytes());
     }
     
-    @GetMapping("/emails/no-thread")
-    public ResponseEntity<List<EmailDTO>> getEmailsWithoutThread(
-            @RequestParam String refreshToken,
-            @RequestParam(defaultValue = "10") int limit) {
-        return ResponseEntity.ok(emailService.listEmailsWithoutThread(refreshToken, limit));
-    }
-
+   
 }

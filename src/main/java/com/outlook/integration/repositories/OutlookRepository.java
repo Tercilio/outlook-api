@@ -1,27 +1,30 @@
 package com.outlook.integration.repositories;
-import com.microsoft.graph.models.BodyType;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+
+import org.jsoup.Jsoup;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Repository;
 
 import com.azure.core.credential.TokenRequestContext;
 import com.azure.identity.ClientSecretCredentialBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
 import com.microsoft.graph.models.FileAttachment;
+import com.microsoft.graph.models.MailFolder;
 import com.microsoft.graph.models.Message;
 import com.microsoft.graph.models.User;
 import com.microsoft.graph.options.QueryOption;
 import com.microsoft.graph.requests.AttachmentCollectionPage;
 import com.microsoft.graph.requests.GraphServiceClient;
+import com.microsoft.graph.requests.MailFolderCollectionPage;
 import com.microsoft.graph.requests.MessageCollectionPage;
 import com.outlook.integration.dtos.Attachment;
 import com.outlook.integration.dtos.EmailDTO;
 import com.outlook.integration.utils.TokenUtil;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Repository;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import org.jsoup.Jsoup;
 
 @Repository
 public class OutlookRepository {
@@ -58,7 +61,7 @@ public class OutlookRepository {
                 .select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
                 .get();
 
-        return mapMessagesToDTO(messagePage);
+        return mapMessagesToDTO(messagePage,userId);
     }
 
     public List<EmailDTO> listLatestEmailsWithoutUserId(String refreshToken, int limit) {
@@ -122,7 +125,7 @@ public class OutlookRepository {
         MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
                 .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").get();
 
-        return mapMessagesToDTO(messages);
+        return mapMessagesToDTO(messages, userId);
     }
 
 
@@ -139,7 +142,7 @@ public class OutlookRepository {
         MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
                 .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").top(10).get();
 
-        return mapMessagesToDTO(messages);
+        return mapMessagesToDTO(messages,refreshToken);
     }
 
     public List<String> searchEmailIdsByQuery(String refreshToken, String text) {
@@ -154,17 +157,28 @@ public class OutlookRepository {
 
         MessageCollectionPage messages = graphClient.me().messages()
                 .buildRequest(options)
-                .select("id,conversationId") 
+                .select("id,conversationId,isDraft") 
                 .get();
 
         List<String> ids = new ArrayList<>();
         if (messages != null && messages.getCurrentPage() != null) {
             for (Message msg : messages.getCurrentPage()) {
+            	if(msg.isDraft) {
+            		continue;
+            	}
                 if (msg.conversationId == null || msg.conversationId.equals(msg.id)) {
                     ids.add(msg.id);
-                }
+                } else {
+                	ids.add(msg.conversationId);
+                	}
+                
             }
         }
+        
+        Set<String> set = new HashSet<>(ids);
+        ids.clear();
+        ids.addAll(set);
+        
         return ids;
     }
 
@@ -216,20 +230,20 @@ public class OutlookRepository {
         GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
 
-        Message message = graphClient.me().messages(messageId).buildRequest().select("conversationId").get();
+        //Message message = graphClient.me().messages(messageId).buildRequest().select("conversationId").get();
 
-        String conversationId = message.conversationId;
+        //String conversationId = message.conversationId;
 
-        List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + conversationId + "'"));
+        List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + messageId + "'"));
 
         MessageCollectionPage threadMessages = graphClient
                 .me()
                 .messages()
                 .buildRequest(options)
-                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments")
+                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments,parentFolderId")
                 .get(); 
 
-        return mapMessagesToDTO(threadMessages);
+        return mapMessagesToDTO(threadMessages,refreshToken);
     }
 
 
@@ -292,30 +306,7 @@ public class OutlookRepository {
     }
     
     
-    //New Metod = "correos que no tengan thread_id"
-    public List<EmailDTO> listEmailsWithoutThread(String refreshToken, int limit) {
-        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
-        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
-                .buildClient();
-
-        MessageCollectionPage messages = graphClient.me().messages().buildRequest()
-                .select("id,subject,from,body,receivedDateTime,conversationId,hasAttachments")
-                .top(limit)
-                .orderBy("receivedDateTime desc")
-                .get();
-
-        // filtra apenas e-mails sem conversationId
-        List<Message> filteredMessages = messages.getCurrentPage().stream()
-                .filter(m -> m.conversationId == null || m.conversationId.isEmpty())
-                .toList();
-
-        // converte lista filtrada para DTOs
-        return mapMessagesToDTO(filteredMessages);
-    }
-    
+  
     private List<EmailDTO> mapMessagesToDTO(List<Message> messageList) {
         List<EmailDTO> result = new ArrayList<>();
         for (Message msg : messageList) {
@@ -351,9 +342,29 @@ public class OutlookRepository {
     }
 
 
+    private String getFolderName(String folderId, String refreshToken) {
+    	
+    	String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-    private List<EmailDTO> mapMessagesToDTO(MessageCollectionPage messages) {
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
+
+        List<QueryOption> options = List.of(new QueryOption("$search", "id eq " + folderId));
+
+        MailFolderCollectionPage mailFolders = graphClient.me().mailFolders()
+                .buildRequest(options)
+                .select("id,displayName") 
+                .get();
+        
+        ArrayList<MailFolder> folders = new ArrayList<>(mailFolders.getCurrentPage());
+        
+		return folders.get(0).displayName;
+
+    }
+
+    private List<EmailDTO> mapMessagesToDTO(MessageCollectionPage messages,String refreshToken) {
         List<EmailDTO> result = new ArrayList<>();
         if (messages != null && messages.getCurrentPage() != null) {
             for (Message msg : messages.getCurrentPage()) {
@@ -406,9 +417,10 @@ public class OutlookRepository {
                     dto.setBcc(bccList);
                 }
                 
-                if (msg.parentFolderId != null) {
-                    dto.setFolderName(msg.parentFolderId);
-                }
+//                if (msg.parentFolderId != null) {
+//                	dto.setFolderName(getFolderName(msg.parentFolderId, refreshToken));
+//                    dto.setFolderName(msg.parentFolderId);
+//                }
 
                 result.add(dto);
             }

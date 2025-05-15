@@ -54,8 +54,6 @@ public class EmailService {
         return outlookRepository.downloadAttachmentContent(refreshToken, messageId, attachmentId);
     }
     
-    public List<EmailDTO> listEmailsWithoutThread(String refreshToken, int limit) {
-        return outlookRepository.listEmailsWithoutThread(refreshToken, limit);
-    }
+  
 
 }
