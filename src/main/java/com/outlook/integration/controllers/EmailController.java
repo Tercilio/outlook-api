@@ -24,46 +24,28 @@ public class EmailController {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping("/search-query")
-    public ResponseEntity<List<EmailDTO>> searchEmailsByQuery(
-            @RequestParam String userId,
-            @RequestParam String text) {
-        List<EmailDTO> result = emailService.searchEmailsByQuery(userId, text);
-        return ResponseEntity.ok(result);
-    }
-
     @GetMapping("/latest")
     public ResponseEntity<List<EmailDTO>> getLatestEmails(
-            @RequestParam String userId,
+            @RequestParam String refreshToken,
             @RequestParam(defaultValue = "5") int limit) {
-        List<EmailDTO> emails = emailService.listLatestEmails(userId, limit);
+        List<EmailDTO> emails = emailService.listLatestEmails(refreshToken, limit);
         return ResponseEntity.ok(emails);
     }
 
-    // NOVO - Buscar com refresh token
     @GetMapping("/search")
-    public ResponseEntity<List<EmailDTO>> searchEmailsWithRefreshToken(
+    public ResponseEntity<List<EmailDTO>> searchEmails(
             @RequestParam String refreshToken,
-            @RequestParam String userId,
-            @RequestParam(required = false, defaultValue = "") String text) {
-        List<EmailDTO> result = emailService.searchEmailsWithRefreshToken(refreshToken, userId, text);
+            @RequestParam(defaultValue = "") String text) {
+        List<EmailDTO> result = emailService.searchEmailsWithRefreshToken(refreshToken, text);
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping("/latest-me")
-    public ResponseEntity<List<EmailDTO>> getLatestEmailsMe(
+    @GetMapping("/search-query")
+    public ResponseEntity<List<EmailDTO>> searchEmailsByQuery(
             @RequestParam String refreshToken,
-            @RequestParam(defaultValue = "5") int limit) {
-        List<EmailDTO> emails = emailService.listLatestEmailsWithoutUserId(refreshToken, limit);
-        return ResponseEntity.ok(emails);
-    }
-
-    @GetMapping("/read")
-    public ResponseEntity<EmailDTO> getEmailById(
-            @RequestParam String refreshToken,
-            @RequestParam String messageId) {
-        EmailDTO email = emailService.getEmailById(refreshToken, messageId);
-        return ResponseEntity.ok(email);
+            @RequestParam String text) {
+        List<EmailDTO> result = emailService.searchEmailsByQuery(refreshToken, text);
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/search-ids")
@@ -72,6 +54,14 @@ public class EmailController {
             @RequestParam String text) {
         List<String> ids = emailService.searchEmailIdsByQuery(refreshToken, text);
         return ResponseEntity.ok(ids);
+    }
+
+    @GetMapping("/read")
+    public ResponseEntity<EmailDTO> getEmailById(
+            @RequestParam String refreshToken,
+            @RequestParam String messageId) {
+        EmailDTO email = emailService.getEmailById(refreshToken, messageId);
+        return ResponseEntity.ok(email);
     }
 
     @GetMapping("/thread")
@@ -101,6 +91,4 @@ public class EmailController {
                 .header("Content-Type", attachment.getContentType())
                 .body(attachment.getContentBytes());
     }
-    
-   
 }
