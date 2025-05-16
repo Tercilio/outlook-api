@@ -452,7 +452,7 @@ public class OutlookRepository {
                     .buildClient();
 
         } catch (Exception e) {
-            throw new RuntimeException("Erro ao criar GraphServiceClient com token da aplicação: " + e.getMessage(), e);
+            throw new RuntimeException("Error al intentar crear GraphServiceClient com token da aplicação: " + e.getMessage(), e);
         }
     }
 
@@ -480,10 +480,10 @@ public class OutlookRepository {
                 dto.setHtmlBody(html);
                 dto.setTextBody(Jsoup.parse(html).text());
             }
-
+     
             if (msg.receivedDateTime != null) {
                 dto.setDate(msg.receivedDateTime.toLocalDateTime());
-            }
+            } 
 
             dto.setHasAttachments(msg.hasAttachments);
 
