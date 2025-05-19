@@ -2,7 +2,7 @@ package com.outlook.integration.services;
 
 import com.outlook.integration.dtos.Attachment;
 import com.outlook.integration.dtos.EmailDTO;
-import com.outlook.integration.repositories.OutlookRepository;
+import com.outlook.integration.repositories.OutlookRepository_OLDNEW;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -12,7 +12,7 @@ import java.util.List;
 public class EmailService {
 
     @Autowired
-    private OutlookRepository outlookRepository;
+    private OutlookRepository_OLDNEW outlookRepository;
 
     public List<String> listEmailSubjects(String userId) {
         return outlookRepository.listEmailSubjects(userId);

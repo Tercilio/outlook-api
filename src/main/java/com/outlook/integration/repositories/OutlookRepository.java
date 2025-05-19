@@ -44,10 +44,8 @@ public class OutlookRepository {
     public List<String> listEmailSubjects(String userId) {
         GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
 
-        MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest()
-                .select("id,subject")
-                .top(10)
-                .get();
+        MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest().select("id,subject")
+                .top(10).get();
 
         List<String> subjects = new ArrayList<>();
         if (messagePage != null && messagePage.getCurrentPage() != null) {
@@ -56,53 +54,14 @@ public class OutlookRepository {
         return subjects;
     }
 
+    public List<EmailDTO> listLatestEmails(String userId, int limit) {
+        GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
 
-    public List<EmailDTO> listLatestEmails(String refreshToken, int limit) {
-        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
-        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
-                .buildClient();
-
-        var foldersPage = graphClient.me().mailFolders()
-                .buildRequest()
-                .select("id,displayName")
+        MessageCollectionPage messagePage = graphClient.users(userId).messages().buildRequest()
+                .select("id,subject,from,bodyPreview,receivedDateTime").orderBy("receivedDateTime desc").top(limit)
                 .get();
 
-        List<Message> allMessages = new ArrayList<>();
-
-        for (var folder : foldersPage.getCurrentPage()) {
-            if ("Drafts".equalsIgnoreCase(folder.displayName)) {
-                continue;
-            }
-
-            try {
-                var messagesPage = graphClient.me()
-                        .mailFolders(folder.id)
-                        .messages()
-                        .buildRequest()
-                        .select("id,subject,from,body,receivedDateTime,hasAttachments,toRecipients,ccRecipients,bccRecipients,isDraft")
-                        .orderBy("receivedDateTime desc")
-                        .top(limit)
-                        .get();
-
-                List<Message> validMessages = messagesPage.getCurrentPage().stream()
-                        .filter(msg -> msg.isDraft == null || !msg.isDraft)
-                        .toList();
-
-                for (Message msg : validMessages) {
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive(folder.displayName));
-                }
-
-                allMessages.addAll(validMessages);
-
-            } catch (Exception e) {
-                System.err.println("Erro ao ler mensagens da pasta: " + folder.displayName);
-            }
-        }
-
-        return mapMessagesToDTO(allMessages.stream().limit(limit).toList());
+        return mapMessagesToDTO(messagePage,userId);
     }
 
     public List<EmailDTO> listLatestEmailsWithoutUserId(String refreshToken, int limit) {
@@ -154,147 +113,99 @@ public class OutlookRepository {
     }
 
 
+
+
+
     
-    public List<EmailDTO> searchEmailsByUserIdAndQuery(String refreshToken, String text) {
+    public List<EmailDTO> searchEmailsByUserIdAndQuery(String userId, String text) {
+        GraphServiceClient<?> graphClient = createGraphClientWithAppToken();
+
+        List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
+
+        MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
+                .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").get();
+
+        return mapMessagesToDTO(messages, userId);
+    }
+
+
+    public List<EmailDTO> searchEmailsWithRefreshToken(String refreshToken, String userId, String text) {
         String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
 
         List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
 
-        MessageCollectionPage messagesPage = graphClient.me().messages()
-                .buildRequest(options)
-                .select("id,subject,from,body,receivedDateTime,hasAttachments,toRecipients,ccRecipients,bccRecipients,parentFolderId,isDraft")
-                .top(10)
-                .get();
+        MessageCollectionPage messages = graphClient.users(userId).messages().buildRequest(options)
+                .select("id,subject,from,bodyPreview,receivedDateTime,hasAttachments").top(10).get();
 
-        List<Message> filteredMessages = messagesPage.getCurrentPage().stream()
-                .filter(msg -> msg.isDraft == null || !msg.isDraft)
-                .toList();
-     
-        for (Message msg : filteredMessages) {
-            if (msg.parentFolderId != null) {
-                try {
-                    String folderName = getFolderName(msg.parentFolderId, refreshToken);
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive(folderName));
-                } catch (Exception e) {
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive("Desconhecida"));
-                }
-            }
-        }
-
-        return mapMessagesToDTO(filteredMessages);
+        return mapMessagesToDTO(messages,refreshToken);
     }
-
-
-
-
-
-    public List<EmailDTO> searchEmailsWithRefreshToken(String refreshToken, String text) {
-        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
-
-        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
-                .buildClient();
-
-        List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
-
-        MessageCollectionPage messagesPage = graphClient.me().messages().buildRequest(options)
-                .select("id,subject,from,body,receivedDateTime,hasAttachments,toRecipients,ccRecipients,bccRecipients,parentFolderId,isDraft")
-                .top(10)
-                .get();
-
-        List<Message> validMessages = messagesPage.getCurrentPage().stream()
-                .filter(msg -> msg.isDraft == null || !msg.isDraft)
-                .toList();
-
-        for (Message msg : validMessages) {
-            if (msg.parentFolderId != null) {
-                try {
-                    String folderName = getFolderName(msg.parentFolderId, refreshToken);
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive(folderName));
-                } catch (Exception e) {
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive("Desconhecida"));
-                }
-            }
-        }
-
-        return mapMessagesToDTO(validMessages);
-    }
-
-
-
 
     public List<String> searchEmailIdsByQuery(String refreshToken, String text) {
         String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
 
         List<QueryOption> options = List.of(new QueryOption("$search", "\"" + text + "\""));
 
         MessageCollectionPage messages = graphClient.me().messages()
                 .buildRequest(options)
-                .select("id,conversationId,isDraft")
-                .top(50) // opcional: define um limite razoável
+                .select("id,conversationId,isDraft") 
                 .get();
 
-        Set<String> uniqueIds = new HashSet<>();
+        List<String> ids = new ArrayList<>();
         if (messages != null && messages.getCurrentPage() != null) {
             for (Message msg : messages.getCurrentPage()) {
-                if (msg.isDraft != null && msg.isDraft) {
-                    continue;
-                }
-
+            	if(msg.isDraft) {
+            		continue;
+            	}
                 if (msg.conversationId == null || msg.conversationId.equals(msg.id)) {
-                    uniqueIds.add(msg.id);
+                    ids.add(msg.id);
                 } else {
-                    uniqueIds.add(msg.conversationId);
-                }
+                	ids.add(msg.conversationId);
+                	}
+                
             }
         }
-
-        return new ArrayList<>(uniqueIds);
+        
+        Set<String> set = new HashSet<>(ids);
+        ids.clear();
+        ids.addAll(set);
+        
+        return ids;
     }
 
 
     
-    public User getUserInfo(String refreshToken) {
-        String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
-
-        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
-
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
+    public User getUserInfo(String refreshToken){
+    	
+    	String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+    	IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+    	
+    	GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
-
-        return graphClient.me()
-                .buildRequest()
-                .select("id,displayName,mail,userPrincipalName") // opcional: já seleciona o necessário
-                .get();
+    	
+		return graphClient.me().buildRequest().get();
+    	
     }
-
 
     public EmailDTO getEmailById(String refreshToken, String messageId) {
         String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
 
-        Message message = graphClient.me().messages(messageId).buildRequest()
-                .select("id,subject,from,toRecipients,ccRecipients,bccRecipients,bodyPreview,receivedDateTime,conversationId,parentFolderId")
+        Message message = graphClient.me().messages(messageId).buildRequest().select(
+                "id,subject,from,toRecipients,ccRecipients,bccRecipients,bodyPreview,receivedDateTime,conversationId")
                 .get();
 
         EmailDTO dto = new EmailDTO();
@@ -302,24 +213,12 @@ public class OutlookRepository {
         dto.setConversationId(message.conversationId);
         dto.setSubject(message.subject);
         dto.setTextBody(message.bodyPreview);
-
         if (message.from != null && message.from.emailAddress != null) {
             dto.setFrom(message.from.emailAddress.address);
         }
-
         if (message.receivedDateTime != null) {
             dto.setDate(message.receivedDateTime.toLocalDateTime());
         }
-
-        if (message.parentFolderId != null) {
-            try {
-                String folderName = getFolderName(message.parentFolderId, refreshToken);
-                dto.setFolderName(folderName);
-            } catch (Exception e) {
-                dto.setFolderName("Unknown");
-            }
-        }
-
         return dto;
     }
 
@@ -328,43 +227,24 @@ public class OutlookRepository {
 
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
 
-        Message baseMessage = graphClient.me().messages(messageId).buildRequest()
-                .select("conversationId")
-                .get();
+        //Message message = graphClient.me().messages(messageId).buildRequest().select("conversationId").get();
 
-        String conversationId = baseMessage.conversationId;
+        //String conversationId = message.conversationId;
 
-        List<QueryOption> options = List.of(
-                new QueryOption("$filter", "conversationId eq '" + conversationId + "'")
-        );
+        List<QueryOption> options = List.of(new QueryOption("$filter", "conversationId eq '" + messageId + "'"));
 
-        MessageCollectionPage threadMessagesPage = graphClient.me().messages()
+        MessageCollectionPage threadMessages = graphClient
+                .me()
+                .messages()
                 .buildRequest(options)
-                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments,parentFolderId,isDraft")
-                .get();
+                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments,parentFolderId")
+                .get(); 
 
-        List<Message> filteredMessages = threadMessagesPage.getCurrentPage().stream()
-                .filter(msg -> msg.isDraft == null || !msg.isDraft)
-                .toList();
-
-        for (Message msg : filteredMessages) {
-            if (msg.parentFolderId != null) {
-                try {
-                    String folderName = getFolderName(msg.parentFolderId, refreshToken);
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive(folderName));
-                } catch (Exception e) {
-                    msg.additionalDataManager().put("folderName", new com.google.gson.JsonPrimitive("Desconhecida"));
-                }
-            }
-        }
-
-        return mapMessagesToDTO(filteredMessages);
+        return mapMessagesToDTO(threadMessages,refreshToken);
     }
-
 
 
     public List<Attachment> getAttachmentsByEmailId(String refreshToken, String messageId) {
@@ -372,218 +252,179 @@ public class OutlookRepository {
 
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
                 .buildClient();
 
-        AttachmentCollectionPage attachmentsPage = graphClient.me()
-                .messages(messageId)
-                .attachments()
-                .buildRequest()
-                .get();
+        AttachmentCollectionPage attachments = graphClient.me().messages(messageId).attachments().buildRequest().get();
 
         List<Attachment> attachmentsList = new ArrayList<>();
-
-        if (attachmentsPage != null && attachmentsPage.getCurrentPage() != null) {
-            for (com.microsoft.graph.models.Attachment att : attachmentsPage.getCurrentPage()) {
-                attachmentsList.add(new Attachment(att.id, att.name, att.contentType, null));
-            }
-        }
+        attachments.getCurrentPage().forEach(att -> {
+            Attachment attachment = new Attachment(att.id, att.name, att.contentType, null);
+            attachmentsList.add(attachment);
+        });
 
         return attachmentsList;
     }
-
 
     public Attachment downloadAttachmentContent(String refreshToken, String messageId, String attachmentId) {
         String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
         IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-        GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                .authenticationProvider(authProvider)
-                .buildClient();
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider).buildClient();
 
-        com.microsoft.graph.models.Attachment attachment = graphClient.me()
+        com.microsoft.graph.models.Attachment attachment = graphClient
+                .me()
                 .messages(messageId)
                 .attachments(attachmentId)
                 .buildRequest()
                 .get();
 
         if (attachment instanceof FileAttachment fileAttachment) {
-            return new Attachment(
-                    fileAttachment.id,
-                    fileAttachment.name,
-                    fileAttachment.contentType,
-                    fileAttachment.contentBytes
-            );
+            return new Attachment(fileAttachment.id, fileAttachment.name, fileAttachment.contentType, fileAttachment.contentBytes);
         }
 
-        throw new IllegalArgumentException("O attachment não é um FileAttachment válido ou não possui conteúdo.");
+        throw new RuntimeException("Attachment não é um FileAttachment válido ou não possui conteúdo.");
     }
-
 
     public String getAppAccessToken() {
-        try {
-            TokenRequestContext context = new TokenRequestContext()
-                    .addScopes("https://graph.microsoft.com/.default");
-
-            return new ClientSecretCredentialBuilder()
-                    .clientId(clientId)
-                    .clientSecret(clientSecret)
-                    .tenantId(tenantId)
-                    .build()
-                    .getToken(context)
-                    .block()
-                    .getToken();
-        } catch (Exception e) {
-            throw new RuntimeException("Erro ao obter access token da aplicação: " + e.getMessage(), e);
-        }
+        TokenRequestContext context = new TokenRequestContext().addScopes("https://graph.microsoft.com/.default");
+        return new ClientSecretCredentialBuilder()
+                .clientId(clientId)
+                .clientSecret(clientSecret)
+                .tenantId(tenantId)
+                .build()
+                .getToken(context)
+                .block()
+                .getToken();
     }
-
 
     private GraphServiceClient<?> createGraphClientWithAppToken() {
-        try {
-            String token = getAppAccessToken();
-
-            IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(token);
-
-            return GraphServiceClient.builder()
-                    .authenticationProvider(authProvider)
-                    .buildClient();
-
-        } catch (Exception e) {
-            throw new RuntimeException("Error al intentar crear GraphServiceClient com token da aplicação: " + e.getMessage(), e);
-        }
+        String token = getAppAccessToken();
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(token);
+        return GraphServiceClient.builder().authenticationProvider(authProvider).buildClient();
     }
-
+    
     
   
     private List<EmailDTO> mapMessagesToDTO(List<Message> messageList) {
         List<EmailDTO> result = new ArrayList<>();
-
-        if (messageList == null || messageList.isEmpty()) {
-            return result;
-        }
-
         for (Message msg : messageList) {
             EmailDTO dto = new EmailDTO();
             dto.setId(msg.id);
             dto.setConversationId(msg.conversationId);
             dto.setSubject(msg.subject);
-
+            
             if (msg.from != null && msg.from.emailAddress != null) {
                 dto.setFrom(msg.from.emailAddress.address);
             }
-
+            
             if (msg.body != null && msg.body.content != null) {
                 String html = msg.body.content;
+                String cleanText = Jsoup.parse(html).text();
+                dto.setTextBody(cleanText);
                 dto.setHtmlBody(html);
-                dto.setTextBody(Jsoup.parse(html).text());
             }
-     
+            
             if (msg.receivedDateTime != null) {
                 dto.setDate(msg.receivedDateTime.toLocalDateTime());
-            } 
-
+            }
+            
             dto.setHasAttachments(msg.hasAttachments);
-
-            if (msg.additionalDataManager() != null && msg.additionalDataManager().containsKey("folderName")) {
+            
+            if (msg.additionalDataManager().containsKey("folderName")) {
                 dto.setFolderName(msg.additionalDataManager().get("folderName").getAsString());
             }
 
             result.add(dto);
         }
-
         return result;
     }
 
 
     private String getFolderName(String folderId, String refreshToken) {
-        try {
-            String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
+    	
+    	String accessToken = tokenUtil.generateAccessTokenFromRefreshToken(refreshToken);
 
-            IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
+        IAuthenticationProvider authProvider = requestUrl -> CompletableFuture.completedFuture(accessToken);
 
-            GraphServiceClient<?> graphClient = GraphServiceClient.builder()
-                    .authenticationProvider(authProvider)
-                    .buildClient();
+        GraphServiceClient<?> graphClient = GraphServiceClient.builder().authenticationProvider(authProvider)
+                .buildClient();
 
-            MailFolder folder = graphClient.me()
-                    .mailFolders(folderId)
-                    .buildRequest()
-                    .select("displayName")
-                    .get();
+        List<QueryOption> options = List.of(new QueryOption("$search", "id eq " + folderId));
 
-            return folder.displayName != null ? folder.displayName : "Desconhecida";
+        MailFolderCollectionPage mailFolders = graphClient.me().mailFolders()
+                .buildRequest(options)
+                .select("id,displayName") 
+                .get();
+        
+        ArrayList<MailFolder> folders = new ArrayList<>(mailFolders.getCurrentPage());
+        
+		return folders.get(0).displayName;
 
-        } catch (Exception e) {
-            return "Desconhecida";
-        }
     }
 
-
-    private List<EmailDTO> mapMessagesToDTO(MessageCollectionPage messages, String refreshToken) {
+    private List<EmailDTO> mapMessagesToDTO(MessageCollectionPage messages,String refreshToken) {
         List<EmailDTO> result = new ArrayList<>();
+        if (messages != null && messages.getCurrentPage() != null) {
+            for (Message msg : messages.getCurrentPage()) {
+                EmailDTO dto = new EmailDTO();
+                dto.setId(msg.id);
+                dto.setConversationId(msg.conversationId);
+                dto.setSubject(msg.subject);
 
-        if (messages == null || messages.getCurrentPage() == null) {
-            return result;
-        }
-
-        for (Message msg : messages.getCurrentPage()) {
-            EmailDTO dto = new EmailDTO();
-            dto.setId(msg.id);
-            dto.setConversationId(msg.conversationId);
-            dto.setSubject(msg.subject);
-
-            if (msg.from != null && msg.from.emailAddress != null) {
-                dto.setFrom(msg.from.emailAddress.address);
-            }
-
-            if (msg.body != null && msg.body.content != null) {
-                String html = msg.body.content;
-                dto.setHtmlBody(html);
-                dto.setTextBody(Jsoup.parse(html).text());
-            }
-
-            if (msg.receivedDateTime != null) {
-                dto.setDate(msg.receivedDateTime.toLocalDateTime());
-            }
-
-            dto.setHasAttachments(msg.hasAttachments != null && msg.hasAttachments);
-
-            if (msg.toRecipients != null) {
-                dto.setTo(msg.toRecipients.stream()
-                        .map(r -> r.emailAddress != null ? r.emailAddress.address : null)
-                        .filter(addr -> addr != null)
-                        .toList());
-            }
-
-            if (msg.ccRecipients != null) {
-                dto.setCc(msg.ccRecipients.stream()
-                        .map(r -> r.emailAddress != null ? r.emailAddress.address : null)
-                        .filter(addr -> addr != null)
-                        .toList());
-            }
-
-            if (msg.bccRecipients != null) {
-                dto.setBcc(msg.bccRecipients.stream()
-                        .map(r -> r.emailAddress != null ? r.emailAddress.address : null)
-                        .filter(addr -> addr != null)
-                        .toList());
-            }
-
-            if (msg.parentFolderId != null) {
-                try {
-                    String folderName = getFolderName(msg.parentFolderId, refreshToken);
-                    dto.setFolderName(folderName);
-                } catch (Exception e) {
-                    dto.setFolderName("Desconhecida");
+                if (msg.from != null && msg.from.emailAddress != null) {
+                    dto.setFrom(msg.from.emailAddress.address);
                 }
+
+                if (msg.body != null && msg.body.content != null) {
+                    String html = msg.body.content;
+                    String cleanText = Jsoup.parse(html).text();
+                    dto.setTextBody(cleanText);
+                    dto.setHtmlBody(html);
+                }
+
+                if (msg.receivedDateTime != null) {
+                    dto.setDate(msg.receivedDateTime.toLocalDateTime());
+                }
+
+                dto.setHasAttachments(msg.hasAttachments);
+
+                // TO
+                if (msg.toRecipients != null) {
+                    List<String> toList = msg.toRecipients.stream()
+                            .map(recipient -> recipient.emailAddress != null ? recipient.emailAddress.address : null)
+                            .filter(address -> address != null)
+                            .toList();
+                    dto.setTo(toList);
+                }
+
+                // CC
+                if (msg.ccRecipients != null) {
+                    List<String> ccList = msg.ccRecipients.stream()
+                            .map(recipient -> recipient.emailAddress != null ? recipient.emailAddress.address : null)
+                            .filter(address -> address != null)
+                            .toList();
+                    dto.setCc(ccList);
+                }
+
+                // BCC
+                if (msg.bccRecipients != null) {
+                    List<String> bccList = msg.bccRecipients.stream()
+                            .map(recipient -> recipient.emailAddress != null ? recipient.emailAddress.address : null)
+                            .filter(address -> address != null)
+                            .toList();
+                    dto.setBcc(bccList);
+                }
+                
+//                if (msg.parentFolderId != null) {
+//                	dto.setFolderName(getFolderName(msg.parentFolderId, refreshToken));
+//                    dto.setFolderName(msg.parentFolderId);
+//                }
+
+                result.add(dto);
             }
-
-            result.add(dto);
         }
-
         return result;
     }
 
