@@ -310,6 +310,9 @@ public class OutlookRepository {
     private List<EmailDTO> mapMessagesToDTO(List<Message> messageList) {
         List<EmailDTO> result = new ArrayList<>();
         for (Message msg : messageList) {
+            if(msg.isDraft) {
+            		continue;
+            	}
             EmailDTO dto = new EmailDTO();
             dto.setId(msg.id);
             dto.setConversationId(msg.conversationId);
