@@ -240,7 +240,7 @@ public class OutlookRepository {
                 .me()
                 .messages()
                 .buildRequest(options)
-                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments,parentFolderId")
+                .select("id,subject,from,body,bodyPreview,receivedDateTime,conversationId,toRecipients,ccRecipients,bccRecipients,hasAttachments,parentFolderId,isDraft")
                 .get(); 
 
         return mapMessagesToDTO(threadMessages,refreshToken);
